@@ -4,7 +4,8 @@ A concept-stage web app for running an online personal-training business: a publ
 site, a **trainer marketplace**, client & trainer portals, and a **Stripe Connect** payment layer
 where the platform takes a commission (your cut) on every charge.
 
-> Separate from the mobile health app. This project is **not** under git and is **not** pushed anywhere.
+> **Portfolio project.** Built to exercise the current .NET stack end to end — marketplace
+> domain modelling, role-scoped portals, and split-payment mechanics — rather than to ship commercially.
 
 ## Stack
 - **ASP.NET Core / Blazor Web App** (.NET 10), interactive server rendering
