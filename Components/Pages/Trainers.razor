@@ -1,0 +1,68 @@
+@page "/trainers"
+@inject ApplicationDbContext Db
+
+<PageTitle>Find a trainer — Apex Coaching</PageTitle>
+
+<div class="section-intro">
+    <h1>Find your coach</h1>
+    <p>Hand-picked, certified online trainers. Browse profiles, compare packages, and start when you're ready.</p>
+</div>
+
+@if (trainers is null)
+{
+    <p class="empty">Loading trainers…</p>
+}
+else if (trainers.Count == 0)
+{
+    <p class="empty">No trainers are listed yet — check back soon.</p>
+}
+else
+{
+    <div class="trainer-grid">
+        @foreach (var t in trainers)
+        {
+            <a class="trainer-card" href="/trainers/@t.Slug">
+                <div class="tc-banner"></div>
+                <div class="tc-body">
+                    <div class="tc-avatar">@Initials(t.User?.FullName)</div>
+                    <div class="tc-name">@t.User?.FullName</div>
+                    <div class="tc-headline">@t.Headline</div>
+                    <div class="tc-tags">
+                        @foreach (var s in t.SpecialtyList.Take(3))
+                        {
+                            <span class="tag">@s</span>
+                        }
+                    </div>
+                    <div class="tc-foot">
+                        <span class="tc-from">from <strong>$@MinPrice(t)/mo</strong></span>
+                        <span class="btn btn-outline-primary btn-sm">View profile</span>
+                    </div>
+                </div>
+            </a>
+        }
+    </div>
+}
+
+@code {
+    private List<Trainer>? trainers;
+
+    protected override async Task OnInitializedAsync()
+    {
+        trainers = await Db.Trainers
+            .Where(t => t.IsApproved && t.IsAcceptingClients)
+            .Include(t => t.User)
+            .Include(t => t.Packages)
+            .OrderByDescending(t => t.YearsExperience)
+            .ToListAsync();
+    }
+
+    private static string Initials(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "?";
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 2 ? $"{parts[0][0]}{parts[1][0]}" : name[..1].ToUpper();
+    }
+
+    private static decimal MinPrice(Trainer t) =>
+        t.Packages.Where(p => p.IsActive).Select(p => p.PriceMonthly).DefaultIfEmpty(0).Min();
+}

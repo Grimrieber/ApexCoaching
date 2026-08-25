@@ -1,0 +1,23 @@
+<Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(Pages.NotFound)">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.PublicLayout)">
+            <NotAuthorized>
+                @if (context.User.Identity?.IsAuthenticated != true)
+                {
+                    <RedirectToLogin />
+                }
+                else
+                {
+                    <LayoutView Layout="typeof(Layout.PublicLayout)">
+                        <section class="page-head" style="text-align:center; padding:3rem 1rem;">
+                            <h1>Not authorized</h1>
+                            <p class="lead">Your account doesn't have access to this page.</p>
+                            <a class="btn btn-primary" href="/dashboard">Go to your dashboard</a>
+                        </section>
+                    </LayoutView>
+                }
+            </NotAuthorized>
+        </AuthorizeRouteView>
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+</Router>

@@ -1,0 +1,111 @@
+@page "/client/book"
+@layout PortalLayout
+@attribute [Authorize(Roles = "Client")]
+@rendermode InteractiveServer
+@inject ApplicationDbContext Db
+@inject PortalContext Portal
+@inject PaymentService Payments
+@inject NavigationManager Nav
+
+<PageTitle>Book a session — Apex Coaching</PageTitle>
+
+<h1 class="dash-h">Book a session</h1>
+<p class="dash-sub">Schedule a one-on-one with your coach.</p>
+
+@if (loading)
+{
+    <p class="empty">Loading…</p>
+}
+else if (client?.Trainer is null)
+{
+    <div class="alert-info">You need an active coach before booking a session. <a href="/trainers">Find a trainer →</a></div>
+}
+else
+{
+    <div class="panel" style="max-width:560px;">
+        <h3>Session with @client.Trainer.User?.FullName</h3>
+
+        @if (!string.IsNullOrEmpty(error)) { <div class="auth-error">@error</div> }
+
+        <div class="contact-form">
+            <label>Date &amp; time
+                <input type="datetime-local" class="form-control" @bind="when" />
+            </label>
+            <label>Length
+                <select class="form-control" @bind="durationMinutes">
+                    <option value="30">30 minutes</option>
+                    <option value="45">45 minutes</option>
+                    <option value="60">60 minutes</option>
+                </select>
+            </label>
+            <label>Type
+                <select class="form-control" @bind="type">
+                    <option value="@BookingType.VideoCall">Video call</option>
+                    <option value="@BookingType.InPerson">In person</option>
+                </select>
+            </label>
+            <label>Notes (optional)
+                <InputTextArea @bind-Value="notes" rows="2" class="form-control" />
+            </label>
+
+            <div class="alert-info" style="margin:0;">
+                Price: <strong>$@Price.ToString("0")</strong>
+                (@client.Trainer.HourlyRate.ToString("0")/hr × @durationMinutes min)
+            </div>
+
+            <button class="btn btn-primary btn-lg" disabled="@busy" @onclick="Book">
+                @(busy ? "Processing…" : Payments.LiveMode ? "Continue to payment" : "Confirm booking (demo)")
+            </button>
+        </div>
+    </div>
+}
+
+@code {
+    private bool loading = true;
+    private bool busy;
+    private string? error;
+    private ClientProfile? client;
+
+    private DateTime when = DateTime.Now.Date.AddDays(1).AddHours(17);
+    private int durationMinutes = 45;
+    private BookingType type = BookingType.VideoCall;
+    private string? notes;
+
+    private decimal Price => client?.Trainer is null
+        ? 0 : Math.Round(client.Trainer.HourlyRate * durationMinutes / 60m, 0);
+
+    protected override async Task OnInitializedAsync()
+    {
+        client = await Portal.GetClientAsync();
+        loading = false;
+    }
+
+    private async Task Book()
+    {
+        error = null;
+        if (client?.Trainer is null) return;
+        if (when <= DateTime.Now) { error = "Please pick a future date and time."; return; }
+
+        busy = true;
+        var booking = new Booking
+        {
+            ClientProfileId = client.Id,
+            TrainerId = client.Trainer.Id,
+            ScheduledAt = when.ToUniversalTime(),
+            DurationMinutes = durationMinutes,
+            Type = type,
+            Price = Price,
+            Notes = notes,
+            Status = BookingStatus.Requested
+        };
+        Db.Bookings.Add(booking);
+
+        var result = await Payments.StartBookingAsync(booking, client.Trainer, Nav.BaseUri.TrimEnd('/'));
+        busy = false;
+
+        if (result.Success)
+            Nav.NavigateTo(result.RedirectUrl, forceLoad: true);
+        else
+            error = result.Error ?? "Could not start checkout.";
+    }
+}

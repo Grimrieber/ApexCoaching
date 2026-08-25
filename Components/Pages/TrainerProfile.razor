@@ -1,0 +1,126 @@
+@page "/trainers/{Slug}"
+@rendermode InteractiveServer
+@using System.Security.Claims
+@inject ApplicationDbContext Db
+@inject PaymentService Payments
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Nav
+
+<PageTitle>@(trainer?.User?.FullName ?? "Trainer") — Apex Coaching</PageTitle>
+
+@if (loading)
+{
+    <p class="empty">Loading…</p>
+}
+else if (trainer is null)
+{
+    <p class="empty">That trainer profile doesn't exist. <a href="/trainers">Browse all trainers →</a></p>
+}
+else
+{
+    <div class="profile-head">
+        <div class="profile-avatar">@Initials(trainer.User?.FullName)</div>
+        <div class="profile-meta">
+            <h1>@trainer.User?.FullName</h1>
+            <p class="headline">@trainer.Headline</p>
+            <p class="muted">@trainer.Location · @trainer.YearsExperience yrs experience</p>
+            <div class="tc-tags">
+                @foreach (var s in trainer.SpecialtyList)
+                {
+                    <span class="tag">@s</span>
+                }
+            </div>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(message))
+    {
+        <div class="alert-info">@message</div>
+    }
+
+    <div class="panel">
+        <h3>About</h3>
+        <p style="color:#3c4651; white-space:pre-line;">@trainer.Bio</p>
+    </div>
+
+    <h3 class="dash-h" style="margin:1.5rem 0 1rem;">Coaching packages</h3>
+    <div class="pricing">
+        @foreach (var p in trainer.Packages.Where(p => p.IsActive).OrderBy(p => p.PriceMonthly))
+        {
+            <div class="price-card @(p.IsPopular ? "featured" : "")">
+                @if (p.IsPopular) { <p class="badge-pop">Most popular</p> }
+                <h3>@p.Name</h3>
+                <p class="price">$@p.PriceMonthly.ToString("0")<span>/mo</span></p>
+                <ul>
+                    @foreach (var f in p.FeatureList)
+                    {
+                        <li>@f</li>
+                    }
+                </ul>
+                <button class="btn @(p.IsPopular ? "btn-primary" : "btn-outline-primary")"
+                        disabled="@busy" @onclick="() => Subscribe(p)">
+                    @(busy ? "Processing…" : "Get started")
+                </button>
+            </div>
+        }
+    </div>
+
+    <p class="fine-print">
+        @(Payments.LiveMode
+            ? "Secure checkout via Stripe."
+            : "Demo mode — selecting a plan simulates checkout (no real charge) and activates your client dashboard.")
+    </p>
+}
+
+@code {
+    [Parameter] public string Slug { get; set; } = "";
+    private Trainer? trainer;
+    private bool loading = true;
+    private bool busy;
+    private string? message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        trainer = await Db.Trainers
+            .Include(t => t.User)
+            .Include(t => t.Packages)
+            .FirstOrDefaultAsync(t => t.Slug == Slug && t.IsApproved);
+        loading = false;
+    }
+
+    private async Task Subscribe(ServicePackage package)
+    {
+        message = null;
+        var state = await AuthState.GetAuthenticationStateAsync();
+        if (state.User.Identity?.IsAuthenticated != true)
+        {
+            Nav.NavigateTo($"/Account/Register?ReturnUrl=/trainers/{Slug}");
+            return;
+        }
+
+        var uid = state.User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var client = await Db.ClientProfiles.FirstOrDefaultAsync(c => c.UserId == uid);
+        if (client is null)
+        {
+            message = "Only client accounts can subscribe to a coaching package.";
+            return;
+        }
+
+        busy = true;
+        var baseUrl = Nav.BaseUri.TrimEnd('/');
+        var result = await Payments.StartSubscriptionAsync(client, package, trainer!, baseUrl);
+        busy = false;
+
+        if (result.Success)
+            Nav.NavigateTo(result.RedirectUrl, forceLoad: true);
+        else
+            message = result.Error ?? "Something went wrong starting checkout.";
+    }
+
+    private static string Initials(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "?";
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 2 ? $"{parts[0][0]}{parts[1][0]}" : name[..1].ToUpper();
+    }
+}

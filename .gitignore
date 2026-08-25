@@ -1,0 +1,47 @@
+## Build output
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+[Ll]ogs/
+artifacts/
+
+## Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.vsp
+*.psess
+
+## Rider / VS Code
+.idea/
+*.sln.iml
+.vscode/
+
+## Secrets — never commit these
+appsettings.*.Local.json
+appsettings.Production.json
+secrets.json
+*.pfx
+*.key
+*.pem
+
+## Local database files
+*.mdf
+*.ldf
+*.ndf
+
+## OS noise
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.DS_Store
+
+## NuGet
+*.nupkg
+*.snupkg
+packages/
+!packages/build/

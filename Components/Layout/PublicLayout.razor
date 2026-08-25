@@ -1,0 +1,59 @@
+@inherits LayoutComponentBase
+
+<div class="site">
+    <header class="site-nav">
+        <div class="nav-container">
+            <a class="brand" href="/">Apex<span>Coaching</span></a>
+            <nav class="nav-links">
+                <a href="/trainers">Find a trainer</a>
+                <a href="/how-it-works">How it works</a>
+                <a href="/pricing">Pricing</a>
+                <a href="/contact">Contact</a>
+            </nav>
+            <div class="nav-actions">
+                <AuthorizeView>
+                    <Authorized>
+                        <a class="btn btn-ghost" href="/dashboard">Dashboard</a>
+                        <form action="/Account/Logout" method="post" class="logout-form">
+                            <button type="submit" class="btn btn-outline-dark">Sign out</button>
+                        </form>
+                    </Authorized>
+                    <NotAuthorized>
+                        <a class="btn btn-ghost" href="/Account/Login">Sign in</a>
+                        <a class="btn btn-primary" href="/Account/Register">Get started</a>
+                    </NotAuthorized>
+                </AuthorizeView>
+            </div>
+        </div>
+    </header>
+
+    <main class="site-main">
+        @Body
+    </main>
+
+    <footer class="site-footer">
+        <div class="footer-grid">
+            <div>
+                <a class="brand" href="/">Apex<span>Coaching</span></a>
+                <p>Online personal training that actually fits your life.</p>
+            </div>
+            <div>
+                <h4>Explore</h4>
+                <a href="/trainers">Find a trainer</a>
+                <a href="/how-it-works">How it works</a>
+                <a href="/pricing">Pricing</a>
+            </div>
+            <div>
+                <h4>For trainers</h4>
+                <a href="/Account/Register">Become a coach</a>
+                <a href="/contact">Partner with us</a>
+            </div>
+            <div>
+                <h4>Account</h4>
+                <a href="/Account/Login">Sign in</a>
+                <a href="/Account/Register">Create account</a>
+            </div>
+        </div>
+        <div class="footer-base">© Apex Coaching — concept build. Not a real business yet.</div>
+    </footer>
+</div>

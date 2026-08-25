@@ -1,0 +1,95 @@
+@page "/client/billing"
+@layout PortalLayout
+@attribute [Authorize(Roles = "Client")]
+@rendermode InteractiveServer
+@inject ApplicationDbContext Db
+@inject PortalContext Portal
+@inject NavigationManager Nav
+
+<PageTitle>Billing — Apex Coaching</PageTitle>
+
+<h1 class="dash-h">Billing</h1>
+<p class="dash-sub">Your plan and payment history.</p>
+
+@if (Nav.Uri.Contains("welcome=1"))
+{
+    <div class="alert-ok">🎉 You're all set! Your coaching plan is active and your coach has been notified.</div>
+}
+
+@if (loading)
+{
+    <p class="empty">Loading…</p>
+}
+else
+{
+    <div class="panel">
+        <h3>Current plan</h3>
+        @if (engagement is null)
+        {
+            <p class="empty">No active plan. <a href="/trainers">Browse trainers →</a></p>
+        }
+        else
+        {
+            <table class="tbl">
+                <tbody>
+                    <tr><td>Coach</td><td>@engagement.Trainer?.User?.FullName</td></tr>
+                    <tr><td>Package</td><td>@engagement.ServicePackage?.Name</td></tr>
+                    <tr><td>Price</td><td>$@engagement.MonthlyPrice.ToString("0")/mo</td></tr>
+                    <tr><td>Status</td><td><span class="status @engagement.Status.ToString().ToLower()">@engagement.Status</span></td></tr>
+                    <tr><td>Started</td><td>@engagement.StartedAt.ToLocalTime().ToString("MMM d, yyyy")</td></tr>
+                </tbody>
+            </table>
+        }
+    </div>
+
+    <div class="panel">
+        <h3>Payment history</h3>
+        @if (payments.Count == 0)
+        {
+            <p class="empty">No payments yet.</p>
+        }
+        else
+        {
+            <table class="tbl">
+                <thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Status</th></tr></thead>
+                <tbody>
+                    @foreach (var p in payments)
+                    {
+                        <tr>
+                            <td>@p.CreatedAt.ToLocalTime().ToString("MMM d, yyyy")</td>
+                            <td>@p.Type</td>
+                            <td>$@p.Amount.ToString("0.00")</td>
+                            <td><span class="status @p.Status.ToString().ToLower()">@p.Status</span></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+}
+
+@code {
+    private bool loading = true;
+    private Engagement? engagement;
+    private List<Payment> payments = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var client = await Portal.GetClientAsync();
+        if (client is not null)
+        {
+            engagement = await Db.Engagements
+                .Include(e => e.Trainer).ThenInclude(t => t!.User)
+                .Include(e => e.ServicePackage)
+                .Where(e => e.ClientProfileId == client.Id && e.Status == EngagementStatus.Active)
+                .OrderByDescending(e => e.StartedAt)
+                .FirstOrDefaultAsync();
+
+            payments = await Db.Payments
+                .Where(p => p.ClientProfileId == client.Id)
+                .OrderByDescending(p => p.CreatedAt)
+                .ToListAsync();
+        }
+        loading = false;
+    }
+}

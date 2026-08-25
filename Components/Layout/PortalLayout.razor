@@ -1,0 +1,59 @@
+@inherits LayoutComponentBase
+@inject AuthenticationStateProvider AuthState
+
+<div class="portal">
+    <aside class="portal-side">
+        <a class="brand" href="/">Apex<span>Coaching</span></a>
+
+        <nav class="portal-nav">
+            <a href="/dashboard"><span class="ic">🏠</span> Dashboard</a>
+
+            <AuthorizeView Roles="Client" Context="c">
+                <div class="nav-group">Coaching</div>
+                <a href="/client/program"><span class="ic">🏋️</span> My program</a>
+                <a href="/client/bookings"><span class="ic">📅</span> My sessions</a>
+                <a href="/client/book"><span class="ic">➕</span> Book a session</a>
+                <a href="/client/billing"><span class="ic">💳</span> Billing</a>
+            </AuthorizeView>
+
+            <AuthorizeView Roles="Trainer" Context="t">
+                <div class="nav-group">Business</div>
+                <a href="/trainer/clients"><span class="ic">👥</span> Clients</a>
+                <a href="/trainer/packages"><span class="ic">📦</span> Packages</a>
+                <a href="/trainer/earnings"><span class="ic">💰</span> Earnings</a>
+                <a href="/trainer/profile"><span class="ic">⚙️</span> Profile & payouts</a>
+            </AuthorizeView>
+
+            <AuthorizeView Roles="Admin" Context="a">
+                <div class="nav-group">Admin</div>
+                <a href="/admin"><span class="ic">📊</span> Overview</a>
+                <a href="/admin/trainers"><span class="ic">✅</span> Trainers</a>
+                <a href="/admin/leads"><span class="ic">📨</span> Leads</a>
+            </AuthorizeView>
+        </nav>
+
+        <a class="back-link" href="/">← Back to site</a>
+    </aside>
+
+    <div class="portal-body">
+        <header class="portal-top">
+            <span class="portal-user">@userName</span>
+            <form action="/Account/Logout" method="post" class="logout-form">
+                <button type="submit" class="btn btn-outline-dark btn-sm">Sign out</button>
+            </form>
+        </header>
+        <div class="portal-content">
+            @Body
+        </div>
+    </div>
+</div>
+
+@code {
+    private string userName = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthState.GetAuthenticationStateAsync();
+        userName = state.User.Identity?.Name ?? "";
+    }
+}

@@ -1,0 +1,75 @@
+@page "/trainer/earnings"
+@layout PortalLayout
+@attribute [Authorize(Roles = "Trainer")]
+@rendermode InteractiveServer
+@inject ApplicationDbContext Db
+@inject PortalContext Portal
+
+<PageTitle>Earnings — Apex Coaching</PageTitle>
+
+<h1 class="dash-h">Earnings</h1>
+<p class="dash-sub">What you've earned after the platform fee.</p>
+
+@if (loading)
+{
+    <p class="empty">Loading…</p>
+}
+else
+{
+    <div class="kpi-row">
+        <div class="kpi"><div class="k">$@gross.ToString("0.00")</div><div class="l">Gross collected</div></div>
+        <div class="kpi"><div class="k">$@fees.ToString("0.00")</div><div class="l">Platform fee (@((trainer?.CommissionRate ?? 0.2m) * 100)%)</div></div>
+        <div class="kpi accent"><div class="k">$@net.ToString("0.00")</div><div class="l">Your net</div></div>
+    </div>
+
+    <div class="panel">
+        <h3>Transactions</h3>
+        @if (payments.Count == 0)
+        {
+            <p class="empty">No transactions yet.</p>
+        }
+        else
+        {
+            <table class="tbl">
+                <thead><tr><th>Date</th><th>Type</th><th>Gross</th><th>Fee</th><th>Net</th><th>Status</th></tr></thead>
+                <tbody>
+                    @foreach (var p in payments)
+                    {
+                        <tr>
+                            <td>@p.CreatedAt.ToLocalTime().ToString("MMM d, yyyy")</td>
+                            <td>@p.Type</td>
+                            <td>$@p.Amount.ToString("0.00")</td>
+                            <td>$@p.PlatformFee.ToString("0.00")</td>
+                            <td>$@p.TrainerNet.ToString("0.00")</td>
+                            <td><span class="status @p.Status.ToString().ToLower()">@p.Status</span></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+}
+
+@code {
+    private bool loading = true;
+    private Trainer? trainer;
+    private List<Payment> payments = new();
+    private decimal gross, fees, net;
+
+    protected override async Task OnInitializedAsync()
+    {
+        trainer = await Portal.GetTrainerAsync();
+        if (trainer is not null)
+        {
+            payments = await Db.Payments
+                .Where(p => p.TrainerId == trainer.Id)
+                .OrderByDescending(p => p.CreatedAt)
+                .ToListAsync();
+            var ok = payments.Where(p => p.Status == PaymentStatus.Succeeded).ToList();
+            gross = ok.Sum(p => p.Amount);
+            fees = ok.Sum(p => p.PlatformFee);
+            net = ok.Sum(p => p.TrainerNet);
+        }
+        loading = false;
+    }
+}

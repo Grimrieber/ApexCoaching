@@ -1,0 +1,71 @@
+@page "/contact"
+@rendermode InteractiveServer
+@inject ApplicationDbContext Db
+
+<PageTitle>Contact — Apex Coaching</PageTitle>
+
+<section class="page-head">
+    <h1>Start coaching</h1>
+    <p class="lead">Tell us about your goals and a coach will be in touch within 24 hours.</p>
+</section>
+
+<section class="contact">
+    @if (submitted)
+    {
+        <div class="alert-ok">
+            Thanks, @savedName! Your message is in — we've logged it and a coach will reach out by email soon.
+        </div>
+        <a class="btn btn-primary" href="/trainers">Browse trainers while you wait →</a>
+    }
+    else
+    {
+        <EditForm Model="Input" OnValidSubmit="Submit" class="contact-form">
+            <DataAnnotationsValidator />
+            <label>Name
+                <InputText @bind-Value="Input.Name" class="form-control" />
+            </label>
+            <label>Email
+                <InputText @bind-Value="Input.Email" class="form-control" />
+            </label>
+            <label>What's your main goal?
+                <InputTextArea @bind-Value="Input.Goal" rows="4" class="form-control" />
+            </label>
+            <ValidationSummary />
+            <button type="submit" class="btn btn-primary btn-lg" disabled="@busy">
+                @(busy ? "Sending…" : "Send")
+            </button>
+        </EditForm>
+    }
+</section>
+
+@code {
+    private LeadForm Input = new();
+    private bool submitted;
+    private bool busy;
+    private string? savedName;
+
+    private async Task Submit()
+    {
+        busy = true;
+        Db.Leads.Add(new Lead
+        {
+            Name = Input.Name,
+            Email = Input.Email,
+            Goal = Input.Goal,
+            Status = LeadStatus.New
+        });
+        await Db.SaveChangesAsync();
+        savedName = Input.Name;
+        submitted = true;
+        busy = false;
+    }
+
+    private class LeadForm
+    {
+        [System.ComponentModel.DataAnnotations.Required]
+        public string Name { get; set; } = "";
+        [System.ComponentModel.DataAnnotations.Required, System.ComponentModel.DataAnnotations.EmailAddress]
+        public string Email { get; set; } = "";
+        public string? Goal { get; set; }
+    }
+}

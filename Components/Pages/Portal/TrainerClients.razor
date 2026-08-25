@@ -1,0 +1,95 @@
+@page "/trainer/clients"
+@layout PortalLayout
+@attribute [Authorize(Roles = "Trainer")]
+@rendermode InteractiveServer
+@inject ApplicationDbContext Db
+@inject PortalContext Portal
+
+<PageTitle>Clients — Apex Coaching</PageTitle>
+
+<h1 class="dash-h">Clients</h1>
+<p class="dash-sub">Everyone you're currently coaching, plus new leads.</p>
+
+@if (loading)
+{
+    <p class="empty">Loading…</p>
+}
+else
+{
+    <div class="panel">
+        <h3>Active clients</h3>
+        @if (engagements.Count == 0)
+        {
+            <p class="empty">No active clients yet.</p>
+        }
+        else
+        {
+            <table class="tbl">
+                <thead><tr><th>Client</th><th>Package</th><th>Monthly</th><th>Since</th><th>Status</th></tr></thead>
+                <tbody>
+                    @foreach (var e in engagements)
+                    {
+                        <tr>
+                            <td>@e.ClientProfile?.User?.FullName</td>
+                            <td>@e.ServicePackage?.Name</td>
+                            <td>$@e.MonthlyPrice.ToString("0")</td>
+                            <td>@e.StartedAt.ToLocalTime().ToString("MMM d, yyyy")</td>
+                            <td><span class="status @e.Status.ToString().ToLower()">@e.Status</span></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+
+    <div class="panel">
+        <h3>New leads</h3>
+        @if (leads.Count == 0)
+        {
+            <p class="empty">No new leads.</p>
+        }
+        else
+        {
+            <table class="tbl">
+                <thead><tr><th>Name</th><th>Email</th><th>Goal</th><th>Received</th></tr></thead>
+                <tbody>
+                    @foreach (var l in leads)
+                    {
+                        <tr>
+                            <td>@l.Name</td>
+                            <td>@l.Email</td>
+                            <td>@l.Goal</td>
+                            <td>@l.CreatedAt.ToLocalTime().ToString("MMM d")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+}
+
+@code {
+    private bool loading = true;
+    private List<Engagement> engagements = new();
+    private List<Lead> leads = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var trainer = await Portal.GetTrainerAsync();
+        if (trainer is not null)
+        {
+            engagements = await Db.Engagements
+                .Include(e => e.ClientProfile).ThenInclude(c => c!.User)
+                .Include(e => e.ServicePackage)
+                .Where(e => e.TrainerId == trainer.Id)
+                .OrderByDescending(e => e.StartedAt)
+                .ToListAsync();
+
+            leads = await Db.Leads
+                .Where(l => l.TrainerId == trainer.Id && l.Status == LeadStatus.New)
+                .OrderByDescending(l => l.CreatedAt)
+                .ToListAsync();
+        }
+        loading = false;
+    }
+}

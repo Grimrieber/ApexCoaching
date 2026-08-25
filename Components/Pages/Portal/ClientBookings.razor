@@ -1,0 +1,71 @@
+@page "/client/bookings"
+@layout PortalLayout
+@attribute [Authorize(Roles = "Client")]
+@rendermode InteractiveServer
+@inject ApplicationDbContext Db
+@inject PortalContext Portal
+@inject NavigationManager Nav
+
+<PageTitle>My sessions — Apex Coaching</PageTitle>
+
+<h1 class="dash-h">My sessions</h1>
+<p class="dash-sub">Your upcoming and past one-on-one sessions.</p>
+
+@if (Nav.Uri.Contains("booked=1"))
+{
+    <div class="alert-ok">Session booked! It's confirmed below.</div>
+}
+
+@if (loading)
+{
+    <p class="empty">Loading…</p>
+}
+else
+{
+    <div class="panel">
+        <div class="dash-card-head">
+            <h3 style="margin:0;">Sessions</h3>
+            <a class="btn btn-primary btn-sm" href="/client/book">Book a session</a>
+        </div>
+        @if (bookings.Count == 0)
+        {
+            <p class="empty">No sessions yet.</p>
+        }
+        else
+        {
+            <table class="tbl">
+                <thead><tr><th>When</th><th>Type</th><th>Length</th><th>Price</th><th>Status</th></tr></thead>
+                <tbody>
+                    @foreach (var b in bookings)
+                    {
+                        <tr>
+                            <td>@b.ScheduledAt.ToLocalTime().ToString("ddd MMM d, h:mm tt")</td>
+                            <td>@(b.Type == BookingType.VideoCall ? "Video call" : "In person")</td>
+                            <td>@b.DurationMinutes min</td>
+                            <td>$@b.Price.ToString("0")</td>
+                            <td><span class="status @b.Status.ToString().ToLower()">@b.Status</span></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+}
+
+@code {
+    private bool loading = true;
+    private List<Booking> bookings = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var client = await Portal.GetClientAsync();
+        if (client is not null)
+        {
+            bookings = await Db.Bookings
+                .Where(b => b.ClientProfileId == client.Id)
+                .OrderByDescending(b => b.ScheduledAt)
+                .ToListAsync();
+        }
+        loading = false;
+    }
+}

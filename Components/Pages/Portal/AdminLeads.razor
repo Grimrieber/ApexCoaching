@@ -1,0 +1,71 @@
+@page "/admin/leads"
+@layout PortalLayout
+@attribute [Authorize(Roles = "Admin")]
+@rendermode InteractiveServer
+@inject ApplicationDbContext Db
+
+<PageTitle>Leads — Admin</PageTitle>
+
+<h1 class="dash-h">Leads</h1>
+<p class="dash-sub">Inbound prospects from the contact form and trainer profiles.</p>
+
+@if (loading)
+{
+    <p class="empty">Loading…</p>
+}
+else if (leads.Count == 0)
+{
+    <p class="empty">No leads yet.</p>
+}
+else
+{
+    <div class="panel">
+        <table class="tbl">
+            <thead><tr><th>Received</th><th>Name</th><th>Email</th><th>Goal</th><th>For</th><th>Status</th></tr></thead>
+            <tbody>
+                @foreach (var l in leads)
+                {
+                    <tr>
+                        <td>@l.CreatedAt.ToLocalTime().ToString("MMM d")</td>
+                        <td>@l.Name</td>
+                        <td>@l.Email</td>
+                        <td>@l.Goal</td>
+                        <td>@(l.Trainer?.User?.FullName ?? "—")</td>
+                        <td>
+                            <select class="form-control" style="padding:.2rem .4rem; min-width:120px;"
+                                    @onchange="e => SetStatus(l, e.Value?.ToString())">
+                                @foreach (var s in Enum.GetValues<LeadStatus>())
+                                {
+                                    <option value="@s" selected="@(l.Status == s)">@s</option>
+                                }
+                            </select>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private bool loading = true;
+    private List<Lead> leads = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        leads = await Db.Leads
+            .Include(l => l.Trainer).ThenInclude(t => t!.User)
+            .OrderByDescending(l => l.CreatedAt)
+            .ToListAsync();
+        loading = false;
+    }
+
+    private async Task SetStatus(Lead l, string? value)
+    {
+        if (Enum.TryParse<LeadStatus>(value, out var status))
+        {
+            l.Status = status;
+            await Db.SaveChangesAsync();
+        }
+    }
+}

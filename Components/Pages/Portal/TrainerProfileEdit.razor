@@ -1,0 +1,104 @@
+@page "/trainer/profile"
+@layout PortalLayout
+@attribute [Authorize(Roles = "Trainer")]
+@rendermode InteractiveServer
+@inject ApplicationDbContext Db
+@inject PortalContext Portal
+@inject PaymentService Payments
+@inject NavigationManager Nav
+
+<PageTitle>Profile &amp; payouts — Apex Coaching</PageTitle>
+
+<h1 class="dash-h">Profile &amp; payouts</h1>
+<p class="dash-sub">How clients see you, and how you get paid.</p>
+
+@if (loading)
+{
+    <p class="empty">Loading…</p>
+}
+else if (trainer is null)
+{
+    <div class="alert-info">No trainer profile found for this account.</div>
+}
+else
+{
+    @if (Nav.Uri.Contains("demo=1"))
+    {
+        <div class="alert-ok">Payout account connected (demo). You're ready to receive payments.</div>
+    }
+    @if (savedNote)
+    {
+        <div class="alert-ok">Profile saved.</div>
+    }
+
+    <div class="panel">
+        <h3>Payouts</h3>
+        @if (trainer.StripeOnboarded)
+        {
+            <p style="margin:0;">✅ Your payout account is connected. Payments (minus the @(trainer.CommissionRate * 100)% platform fee) are routed to you automatically.</p>
+        }
+        else
+        {
+            <p>Connect your payout account to start receiving client payments via Stripe Connect.</p>
+            <button class="btn btn-primary" disabled="@busy" @onclick="ConnectPayouts">
+                @(busy ? "Connecting…" : Payments.LiveMode ? "Connect with Stripe" : "Connect payout account (demo)")
+            </button>
+        }
+    </div>
+
+    <div class="panel">
+        <h3>Public profile</h3>
+        <div class="contact-form" style="max-width:none;">
+            <label>Headline <input class="form-control" @bind="trainer.Headline" /></label>
+            <label>Specialties (comma separated) <input class="form-control" @bind="trainer.Specialties" /></label>
+            <label>Location <input class="form-control" @bind="trainer.Location" /></label>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
+                <label>Years experience <input type="number" class="form-control" @bind="trainer.YearsExperience" /></label>
+                <label>Session rate ($/hr) <input type="number" class="form-control" @bind="trainer.HourlyRate" /></label>
+            </div>
+            <label>Bio <textarea class="form-control" rows="5" @bind="trainer.Bio"></textarea></label>
+            <label class="checkbox-row"><input type="checkbox" @bind="trainer.IsAcceptingClients" /> Accepting new clients</label>
+            <div>
+                <button class="btn btn-primary" @onclick="Save">Save profile</button>
+                @if (trainer.IsApproved)
+                {
+                    <a class="btn btn-outline-primary" href="/trainers/@trainer.Slug" target="_blank">View public profile ↗</a>
+                }
+                else
+                {
+                    <span class="status pending" style="margin-left:.5rem;">Pending admin approval</span>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private bool loading = true;
+    private bool busy;
+    private bool savedNote;
+    private Trainer? trainer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        trainer = await Portal.GetTrainerAsync();
+        loading = false;
+    }
+
+    private async Task Save()
+    {
+        await Db.SaveChangesAsync();
+        savedNote = true;
+    }
+
+    private async Task ConnectPayouts()
+    {
+        if (trainer is null) return;
+        busy = true;
+        var baseUrl = Nav.BaseUri.TrimEnd('/');
+        var url = await Payments.CreateOnboardingLinkAsync(
+            trainer, $"{baseUrl}/trainer/profile", $"{baseUrl}/trainer/profile");
+        busy = false;
+        Nav.NavigateTo(url, forceLoad: true);
+    }
+}

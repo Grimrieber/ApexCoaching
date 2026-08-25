@@ -1,0 +1,125 @@
+@page "/Account/Register"
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Identity
+@using OnlineTrainer.Data
+@inject UserManager<ApplicationUser> UserManager
+@inject SignInManager<ApplicationUser> SignInManager
+@inject ApplicationDbContext Db
+@inject IdentityRedirectManager RedirectManager
+
+<PageTitle>Create account — Apex Coaching</PageTitle>
+
+<div class="auth-wrap">
+    <div class="auth-card">
+        <h1>Create your account</h1>
+        <p class="auth-sub">Join as a client to get coached, or as a trainer to grow your business.</p>
+
+        @if (errors.Count > 0)
+        {
+            <div class="auth-error">
+                @foreach (var e in errors) { <div>@e</div> }
+            </div>
+        }
+
+        <EditForm Model="Input" method="post" OnValidSubmit="RegisterUser" FormName="register">
+            <DataAnnotationsValidator />
+
+            <InputRadioGroup @bind-Value="Input.Role" Name="role">
+                <div class="role-toggle">
+                    <label class="@(Input.Role == Roles.Client ? "active" : "")">
+                        <InputRadio Value="@Roles.Client" /> I want a coach
+                    </label>
+                    <label class="@(Input.Role == Roles.Trainer ? "active" : "")">
+                        <InputRadio Value="@Roles.Trainer" /> I'm a trainer
+                    </label>
+                </div>
+            </InputRadioGroup>
+
+            <label>Full name
+                <InputText @bind-Value="Input.FullName" class="form-control" />
+            </label>
+            <label>Email
+                <InputText @bind-Value="Input.Email" class="form-control" autocomplete="username" />
+            </label>
+            <label>Password
+                <InputText type="password" @bind-Value="Input.Password" class="form-control" autocomplete="new-password" />
+            </label>
+
+            <button type="submit" class="btn btn-primary btn-lg w-100">Create account</button>
+        </EditForm>
+
+        <p class="auth-alt">Already have an account? <a href="/Account/Login">Sign in</a></p>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromForm] private InputModel Input { get; set; } = new();
+    private readonly List<string> errors = new();
+
+    public async Task RegisterUser()
+    {
+        errors.Clear();
+        var user = new ApplicationUser
+        {
+            UserName = Input.Email,
+            Email = Input.Email,
+            EmailConfirmed = true,
+            FullName = Input.FullName
+        };
+
+        var result = await UserManager.CreateAsync(user, Input.Password);
+        if (!result.Succeeded)
+        {
+            errors.AddRange(result.Errors.Select(e => e.Description));
+            return;
+        }
+
+        var role = Input.Role == Roles.Trainer ? Roles.Trainer : Roles.Client;
+        await UserManager.AddToRoleAsync(user, role);
+
+        if (role == Roles.Trainer)
+        {
+            Db.Trainers.Add(new Trainer
+            {
+                UserId = user.Id,
+                Slug = await UniqueSlugAsync(Input.FullName),
+                Headline = "Online personal trainer",
+                Bio = "",
+                HourlyRate = 60m,
+                CommissionRate = 0.20m,
+                IsApproved = false,        // admin approves before listing
+                IsAcceptingClients = true
+            });
+        }
+        else
+        {
+            Db.ClientProfiles.Add(new ClientProfile { UserId = user.Id });
+        }
+        await Db.SaveChangesAsync();
+
+        await SignInManager.SignInAsync(user, isPersistent: false);
+        RedirectManager.RedirectTo("/dashboard");
+    }
+
+    private async Task<string> UniqueSlugAsync(string name)
+    {
+        var baseSlug = new string(name.ToLowerInvariant()
+            .Select(c => char.IsLetterOrDigit(c) ? c : '-').ToArray())
+            .Trim('-');
+        if (string.IsNullOrEmpty(baseSlug)) baseSlug = "trainer";
+        var slug = baseSlug;
+        var i = 1;
+        while (await Db.Trainers.AnyAsync(t => t.Slug == slug))
+            slug = $"{baseSlug}-{++i}";
+        return slug;
+    }
+
+    private sealed class InputModel
+    {
+        [Required] public string FullName { get; set; } = "";
+        [Required, EmailAddress] public string Email { get; set; } = "";
+        [Required, StringLength(100, MinimumLength = 6)]
+        public string Password { get; set; } = "";
+        public string Role { get; set; } = Roles.Client;
+    }
+}

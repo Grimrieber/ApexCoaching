@@ -1,0 +1,109 @@
+@page "/trainer/packages"
+@layout PortalLayout
+@attribute [Authorize(Roles = "Trainer")]
+@rendermode InteractiveServer
+@inject ApplicationDbContext Db
+@inject PortalContext Portal
+
+<PageTitle>Packages — Apex Coaching</PageTitle>
+
+<div class="dash-card-head">
+    <div>
+        <h1 class="dash-h">Packages</h1>
+        <p class="dash-sub" style="margin:0;">The coaching plans clients can buy from your profile.</p>
+    </div>
+    <button class="btn btn-primary" disabled="@(trainer is null)" @onclick="AddPackage">+ Add package</button>
+</div>
+
+@if (savedNote)
+{
+    <div class="alert-ok">Saved.</div>
+}
+
+@if (loading)
+{
+    <p class="empty">Loading…</p>
+}
+else if (packages.Count == 0)
+{
+    <p class="empty">No packages yet — add your first one.</p>
+}
+else
+{
+    @foreach (var p in packages)
+    {
+        <div class="panel">
+            <div class="contact-form" style="max-width:none;">
+                <div style="display:grid; grid-template-columns:2fr 1fr; gap:1rem;">
+                    <label>Name <input class="form-control" @bind="p.Name" /></label>
+                    <label>Price / month ($) <input type="number" class="form-control" @bind="p.PriceMonthly" /></label>
+                </div>
+                <label>Short description <input class="form-control" @bind="p.Description" /></label>
+                <label>Features (one per line)
+                    <textarea class="form-control" rows="4" @bind="p.Features"></textarea>
+                </label>
+                <div style="display:flex; gap:1.5rem; align-items:center;">
+                    <label class="checkbox-row" style="margin:0;"><input type="checkbox" @bind="p.IsPopular" /> Mark “most popular”</label>
+                    <label class="checkbox-row" style="margin:0;"><input type="checkbox" @bind="p.IsActive" /> Active (visible)</label>
+                    <span style="flex:1;"></span>
+                    <button class="btn btn-outline-dark btn-sm" @onclick="() => Delete(p)">Delete</button>
+                    <button class="btn btn-primary btn-sm" @onclick="() => Save(p)">Save</button>
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private bool loading = true;
+    private bool savedNote;
+    private Trainer? trainer;
+    private List<ServicePackage> packages = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        trainer = await Portal.GetTrainerAsync();
+        await ReloadAsync();
+        loading = false;
+    }
+
+    private async Task ReloadAsync()
+    {
+        if (trainer is null) return;
+        packages = await Db.ServicePackages
+            .Where(p => p.TrainerId == trainer.Id)
+            .OrderBy(p => p.PriceMonthly)
+            .ToListAsync();
+    }
+
+    private async Task AddPackage()
+    {
+        if (trainer is null) return;
+        Db.ServicePackages.Add(new ServicePackage
+        {
+            TrainerId = trainer.Id,
+            Name = "New package",
+            Description = "Describe what's included.",
+            PriceMonthly = 99m,
+            Features = "Custom training program\nMonthly check-in",
+            IsActive = true
+        });
+        await Db.SaveChangesAsync();
+        await ReloadAsync();
+    }
+
+    private async Task Save(ServicePackage p)
+    {
+        await Db.SaveChangesAsync();
+        savedNote = true;
+        await Task.Delay(1200);
+        savedNote = false;
+    }
+
+    private async Task Delete(ServicePackage p)
+    {
+        Db.ServicePackages.Remove(p);
+        await Db.SaveChangesAsync();
+        await ReloadAsync();
+    }
+}

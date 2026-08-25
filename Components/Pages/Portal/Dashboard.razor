@@ -1,0 +1,176 @@
+@page "/dashboard"
+@layout PortalLayout
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject ApplicationDbContext Db
+@inject PortalContext Portal
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>Dashboard — Apex Coaching</PageTitle>
+
+@if (loading)
+{
+    <p class="empty">Loading…</p>
+}
+else if (role == Roles.Client)
+{
+    <h1 class="dash-h">Welcome back@(clientFirstName is null ? "" : $", {clientFirstName}")</h1>
+    <p class="dash-sub">Here's where things stand with your coaching.</p>
+
+    <div class="kpi-row">
+        <div class="kpi accent"><div class="k">@programDays</div><div class="l">Training days in your plan</div></div>
+        <div class="kpi"><div class="k">@(nextSession?.ToString("MMM d") ?? "—")</div><div class="l">Next session</div></div>
+        <div class="kpi"><div class="k">@(engagement?.ServicePackage?.Name ?? "None")</div><div class="l">Current plan</div></div>
+    </div>
+
+    @if (engagement is null)
+    {
+        <div class="alert-info">You're not working with a coach yet. <a href="/trainers">Browse trainers →</a></div>
+    }
+    else
+    {
+        <div class="panel">
+            <h3>Your coach</h3>
+            <p style="margin:0;"><strong>@engagement.Trainer?.User?.FullName</strong> — @engagement.Trainer?.Headline</p>
+        </div>
+    }
+
+    <div class="panel">
+        <h3>Quick links</h3>
+        <a class="btn btn-primary" href="/client/program">Open my program</a>
+        <a class="btn btn-outline-primary" href="/client/book">Book a session</a>
+    </div>
+}
+else if (role == Roles.Trainer)
+{
+    <h1 class="dash-h">Coach dashboard</h1>
+    <p class="dash-sub">Your business at a glance.</p>
+
+    @if (trainer is { StripeOnboarded: false })
+    {
+        <div class="alert-info">
+            💳 Connect your payout account to start getting paid.
+            <a href="/trainer/profile">Set up payouts →</a>
+        </div>
+    }
+
+    <div class="kpi-row">
+        <div class="kpi accent"><div class="k">@activeClients</div><div class="l">Active clients</div></div>
+        <div class="kpi"><div class="k">$@monthlyRecurring.ToString("0")</div><div class="l">Monthly recurring</div></div>
+        <div class="kpi"><div class="k">$@netEarnings.ToString("0")</div><div class="l">Your earnings (net)</div></div>
+        <div class="kpi"><div class="k">@openLeads</div><div class="l">New leads</div></div>
+    </div>
+
+    <div class="panel">
+        <h3>Quick links</h3>
+        <a class="btn btn-primary" href="/trainer/clients">View clients</a>
+        <a class="btn btn-outline-primary" href="/trainer/packages">Edit packages</a>
+        <a class="btn btn-outline-primary" href="/trainer/earnings">Earnings</a>
+    </div>
+}
+else if (role == Roles.Admin)
+{
+    <h1 class="dash-h">Platform overview</h1>
+    <p class="dash-sub">Marketplace health and your platform revenue.</p>
+
+    <div class="kpi-row">
+        <div class="kpi"><div class="k">@totalTrainers</div><div class="l">Trainers</div></div>
+        <div class="kpi"><div class="k">@pendingApprovals</div><div class="l">Pending approval</div></div>
+        <div class="kpi"><div class="k">@totalClients</div><div class="l">Clients</div></div>
+        <div class="kpi accent"><div class="k">$@platformFees.ToString("0.00")</div><div class="l">Platform fees collected</div></div>
+    </div>
+
+    <div class="panel">
+        <h3>Quick links</h3>
+        <a class="btn btn-primary" href="/admin/trainers">Review trainers</a>
+        <a class="btn btn-outline-primary" href="/admin/leads">View leads</a>
+    </div>
+}
+
+@code {
+    private bool loading = true;
+    private string role = "";
+
+    // client
+    private string? clientFirstName;
+    private int programDays;
+    private DateTime? nextSession;
+    private Engagement? engagement;
+
+    // trainer
+    private Trainer? trainer;
+    private int activeClients;
+    private decimal monthlyRecurring;
+    private decimal netEarnings;
+    private int openLeads;
+
+    // admin
+    private int totalTrainers, pendingApprovals, totalClients;
+    private decimal platformFees;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthState.GetAuthenticationStateAsync();
+        if (state.User.IsInRole(Roles.Admin)) role = Roles.Admin;
+        else if (state.User.IsInRole(Roles.Trainer)) role = Roles.Trainer;
+        else role = Roles.Client;
+
+        if (role == Roles.Client) await LoadClientAsync();
+        else if (role == Roles.Trainer) await LoadTrainerAsync();
+        else await LoadAdminAsync();
+
+        loading = false;
+    }
+
+    private async Task LoadClientAsync()
+    {
+        var client = await Portal.GetClientAsync();
+        if (client is null) return;
+        clientFirstName = client.User?.FullName?.Split(' ').FirstOrDefault();
+
+        engagement = await Db.Engagements
+            .Include(e => e.Trainer).ThenInclude(t => t!.User)
+            .Include(e => e.ServicePackage)
+            .Where(e => e.ClientProfileId == client.Id && e.Status == EngagementStatus.Active)
+            .OrderByDescending(e => e.StartedAt)
+            .FirstOrDefaultAsync();
+
+        programDays = await Db.Workouts
+            .CountAsync(w => w.TrainingProgram!.ClientProfileId == client.Id && w.TrainingProgram.IsActive);
+
+        nextSession = await Db.Bookings
+            .Where(b => b.ClientProfileId == client.Id && b.ScheduledAt >= DateTime.UtcNow
+                        && b.Status != BookingStatus.Cancelled)
+            .OrderBy(b => b.ScheduledAt)
+            .Select(b => (DateTime?)b.ScheduledAt)
+            .FirstOrDefaultAsync();
+    }
+
+    private async Task LoadTrainerAsync()
+    {
+        trainer = await Portal.GetTrainerAsync();
+        if (trainer is null) return;
+
+        var active = await Db.Engagements
+            .Where(e => e.TrainerId == trainer.Id && e.Status == EngagementStatus.Active)
+            .ToListAsync();
+        activeClients = active.Select(e => e.ClientProfileId).Distinct().Count();
+        monthlyRecurring = active.Sum(e => e.MonthlyPrice);
+
+        netEarnings = await Db.Payments
+            .Where(p => p.TrainerId == trainer.Id && p.Status == PaymentStatus.Succeeded)
+            .SumAsync(p => (decimal?)p.TrainerNet) ?? 0m;
+
+        openLeads = await Db.Leads.CountAsync(l => l.TrainerId == trainer.Id && l.Status == LeadStatus.New);
+    }
+
+    private async Task LoadAdminAsync()
+    {
+        totalTrainers = await Db.Trainers.CountAsync();
+        pendingApprovals = await Db.Trainers.CountAsync(t => !t.IsApproved);
+        totalClients = await Db.ClientProfiles.CountAsync();
+        platformFees = await Db.Payments
+            .Where(p => p.Status == PaymentStatus.Succeeded)
+            .SumAsync(p => (decimal?)p.PlatformFee) ?? 0m;
+    }
+}

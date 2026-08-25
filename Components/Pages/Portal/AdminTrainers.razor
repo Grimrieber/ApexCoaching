@@ -1,0 +1,73 @@
+@page "/admin/trainers"
+@layout PortalLayout
+@attribute [Authorize(Roles = "Admin")]
+@rendermode InteractiveServer
+@inject ApplicationDbContext Db
+
+<PageTitle>Trainers — Admin</PageTitle>
+
+<h1 class="dash-h">Trainers</h1>
+<p class="dash-sub">Approve trainers to list them in the marketplace.</p>
+
+@if (loading)
+{
+    <p class="empty">Loading…</p>
+}
+else
+{
+    <div class="panel">
+        <table class="tbl">
+            <thead><tr><th>Name</th><th>Headline</th><th>Clients</th><th>Approved</th><th>Payouts</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var t in trainers)
+                {
+                    <tr>
+                        <td>@t.User?.FullName</td>
+                        <td>@t.Headline</td>
+                        <td>@clientCounts.GetValueOrDefault(t.Id)</td>
+                        <td>
+                            <span class="status @(t.IsApproved ? "active" : "pending")">
+                                @(t.IsApproved ? "Approved" : "Pending")
+                            </span>
+                        </td>
+                        <td>@(t.StripeOnboarded ? "Connected" : "—")</td>
+                        <td>
+                            <button class="btn btn-sm @(t.IsApproved ? "btn-outline-dark" : "btn-primary")"
+                                    @onclick="() => Toggle(t)">
+                                @(t.IsApproved ? "Unlist" : "Approve")
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private bool loading = true;
+    private List<Trainer> trainers = new();
+    private Dictionary<int, int> clientCounts = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadAsync();
+        loading = false;
+    }
+
+    private async Task ReloadAsync()
+    {
+        trainers = await Db.Trainers.Include(t => t.User).OrderBy(t => t.IsApproved).ThenBy(t => t.Id).ToListAsync();
+        clientCounts = await Db.Engagements
+            .Where(e => e.Status == EngagementStatus.Active)
+            .GroupBy(e => e.TrainerId)
+            .Select(g => new { g.Key, Count = g.Select(e => e.ClientProfileId).Distinct().Count() })
+            .ToDictionaryAsync(x => x.Key, x => x.Count);
+    }
+
+    private async Task Toggle(Trainer t)
+    {
+        t.IsApproved = !t.IsApproved;
+        await Db.SaveChangesAsync();
+    }
+}

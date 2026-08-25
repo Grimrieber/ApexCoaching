@@ -1,0 +1,71 @@
+@page "/admin"
+@layout PortalLayout
+@attribute [Authorize(Roles = "Admin")]
+@rendermode InteractiveServer
+@inject ApplicationDbContext Db
+
+<PageTitle>Admin — Apex Coaching</PageTitle>
+
+<h1 class="dash-h">Platform overview</h1>
+<p class="dash-sub">Marketplace activity and platform revenue.</p>
+
+@if (loading)
+{
+    <p class="empty">Loading…</p>
+}
+else
+{
+    <div class="kpi-row">
+        <div class="kpi"><div class="k">@trainers</div><div class="l">Trainers (@pending pending)</div></div>
+        <div class="kpi"><div class="k">@clients</div><div class="l">Clients</div></div>
+        <div class="kpi"><div class="k">$@gross.ToString("0")</div><div class="l">Gross processed</div></div>
+        <div class="kpi accent"><div class="k">$@fees.ToString("0.00")</div><div class="l">Platform fees (your cut)</div></div>
+    </div>
+
+    <div class="panel">
+        <h3>Recent payments</h3>
+        @if (recent.Count == 0)
+        {
+            <p class="empty">No payments yet.</p>
+        }
+        else
+        {
+            <table class="tbl">
+                <thead><tr><th>Date</th><th>Trainer</th><th>Type</th><th>Gross</th><th>Platform fee</th></tr></thead>
+                <tbody>
+                    @foreach (var p in recent)
+                    {
+                        <tr>
+                            <td>@p.CreatedAt.ToLocalTime().ToString("MMM d")</td>
+                            <td>@p.Trainer?.User?.FullName</td>
+                            <td>@p.Type</td>
+                            <td>$@p.Amount.ToString("0.00")</td>
+                            <td>$@p.PlatformFee.ToString("0.00")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+}
+
+@code {
+    private bool loading = true;
+    private int trainers, pending, clients;
+    private decimal gross, fees;
+    private List<Payment> recent = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        trainers = await Db.Trainers.CountAsync();
+        pending = await Db.Trainers.CountAsync(t => !t.IsApproved);
+        clients = await Db.ClientProfiles.CountAsync();
+        var ok = await Db.Payments.Where(p => p.Status == PaymentStatus.Succeeded).ToListAsync();
+        gross = ok.Sum(p => p.Amount);
+        fees = ok.Sum(p => p.PlatformFee);
+        recent = await Db.Payments
+            .Include(p => p.Trainer).ThenInclude(t => t!.User)
+            .OrderByDescending(p => p.CreatedAt).Take(10).ToListAsync();
+        loading = false;
+    }
+}

@@ -1,0 +1,69 @@
+@page "/Account/Login"
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Identity
+@using OnlineTrainer.Data
+@inject SignInManager<ApplicationUser> SignInManager
+@inject IdentityRedirectManager RedirectManager
+
+<PageTitle>Sign in — Apex Coaching</PageTitle>
+
+<div class="auth-wrap">
+    <div class="auth-card">
+        <h1>Welcome back</h1>
+        <p class="auth-sub">Sign in to your coaching account.</p>
+
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="auth-error">@errorMessage</div>
+        }
+
+        <EditForm Model="Input" method="post" OnValidSubmit="LoginUser" FormName="login">
+            <DataAnnotationsValidator />
+            <label>Email
+                <InputText @bind-Value="Input.Email" class="form-control" autocomplete="username" />
+            </label>
+            <label>Password
+                <InputText type="password" @bind-Value="Input.Password" class="form-control" autocomplete="current-password" />
+            </label>
+            <label class="checkbox-row">
+                <InputCheckbox @bind-Value="Input.RememberMe" /> Remember me
+            </label>
+            <button type="submit" class="btn btn-primary btn-lg w-100">Sign in</button>
+        </EditForm>
+
+        <p class="auth-alt">New here? <a href="/Account/Register">Create an account</a></p>
+
+        <div class="demo-creds">
+            <strong>Demo logins</strong> (password <code>@SeedData.DemoPassword</code>):
+            <ul>
+                <li>Client — <code>@SeedData.ClientEmail</code></li>
+                <li>Trainer — <code>@SeedData.CoachEmail</code></li>
+                <li>Admin — <code>@SeedData.AdminEmail</code></li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromForm] private InputModel Input { get; set; } = new();
+    [SupplyParameterFromQuery] private string? ReturnUrl { get; set; }
+    private string? errorMessage;
+
+    public async Task LoginUser()
+    {
+        var result = await SignInManager.PasswordSignInAsync(
+            Input.Email, Input.Password, Input.RememberMe, lockoutOnFailure: false);
+
+        if (result.Succeeded)
+            RedirectManager.RedirectTo(ReturnUrl ?? "/dashboard");
+        else
+            errorMessage = "Invalid email or password.";
+    }
+
+    private sealed class InputModel
+    {
+        [Required, EmailAddress] public string Email { get; set; } = "";
+        [Required, DataType(DataType.Password)] public string Password { get; set; } = "";
+        public bool RememberMe { get; set; }
+    }
+}

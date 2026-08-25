@@ -1,0 +1,73 @@
+@page "/client/program"
+@layout PortalLayout
+@attribute [Authorize(Roles = "Client")]
+@rendermode InteractiveServer
+@inject ApplicationDbContext Db
+@inject PortalContext Portal
+
+<PageTitle>My program — Apex Coaching</PageTitle>
+
+@if (loading)
+{
+    <p class="empty">Loading…</p>
+}
+else if (program is null)
+{
+    <h1 class="dash-h">My program</h1>
+    <div class="alert-info">Your coach hasn't assigned a program yet. It'll appear here once they do.</div>
+}
+else
+{
+    <h1 class="dash-h">@program.Name</h1>
+    <p class="dash-sub">@program.Description</p>
+
+    @foreach (var w in program.Workouts.OrderBy(w => w.OrderIndex))
+    {
+        var doneCount = w.Exercises.Count(e => completed.Contains(e.Id));
+        <div class="panel">
+            <div class="dash-card-head">
+                <h3 style="margin:0;">@w.DayLabel · @w.Name</h3>
+                <span class="pill">@doneCount/@w.Exercises.Count done</span>
+            </div>
+            <div class="progress-track">
+                <div class="progress-fill" style="width:@(w.Exercises.Count == 0 ? 0 : 100 * doneCount / w.Exercises.Count)%"></div>
+            </div>
+            @foreach (var ex in w.Exercises.OrderBy(e => e.OrderIndex))
+            {
+                <label class="ex-row @(completed.Contains(ex.Id) ? "done" : "")">
+                    <input type="checkbox" checked="@completed.Contains(ex.Id)"
+                           @onchange="() => Toggle(ex.Id)" />
+                    <span class="ex-name">@ex.Name</span>
+                    <span class="ex-meta">@ex.Sets × @ex.Reps</span>
+                </label>
+            }
+        </div>
+    }
+    <p class="fine-print">Check-offs are session-local in this concept; persisting completion per day is a quick next step.</p>
+}
+
+@code {
+    private bool loading = true;
+    private TrainingProgram? program;
+    private readonly HashSet<int> completed = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var client = await Portal.GetClientAsync();
+        if (client is not null)
+        {
+            program = await Db.TrainingPrograms
+                .Include(p => p.Workouts).ThenInclude(w => w.Exercises)
+                .Where(p => p.ClientProfileId == client.Id && p.IsActive)
+                .OrderByDescending(p => p.StartDate)
+                .FirstOrDefaultAsync();
+        }
+        loading = false;
+    }
+
+    private void Toggle(int exerciseId)
+    {
+        if (!completed.Add(exerciseId))
+            completed.Remove(exerciseId);
+    }
+}
