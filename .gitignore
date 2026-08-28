@@ -45,3 +45,6 @@ $RECYCLE.BIN/
 *.snupkg
 packages/
 !packages/build/
+
+## Local environment
+.env
