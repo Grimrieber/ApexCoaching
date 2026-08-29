@@ -7,6 +7,36 @@ where the platform takes a commission (your cut) on every charge.
 > **Portfolio project.** Built to exercise the current .NET stack end to end — marketplace
 > domain modelling, role-scoped portals, and split-payment mechanics — rather than to ship commercially.
 
+
+## Status
+
+*Verified 29 Aug 2026 — builds with 0 errors; run under `dotnet run` against LocalDB. Migrations
+applied and demo data seeded automatically on first start. Every route below returned HTTP 200.*
+
+**Working — verified end to end**
+- **Public site** — home, about, pricing, how-it-works, contact, trainer directory, and individual
+  trainer profiles (`/trainers/alex-rivera`), all rendering seeded data
+- **Authentication** — cookie login verified for all three demo accounts
+- **Client portal** — `/dashboard`, `/client/program`, `/client/bookings`, `/client/book`, `/client/billing`
+- **Trainer portal** — `/trainer/clients`, `/trainer/packages`, `/trainer/earnings`, `/trainer/profile`
+- **Admin portal** — `/admin`, `/admin/trainers`, `/admin/leads`
+- Seeding produces 2 trainers, 4 users, and 6 service packages
+
+**Demo mode**
+With no Stripe keys configured the app runs in simulated checkout — every payment flow is
+walkable without charging anything. Supply real keys via user-secrets to switch to live
+Stripe Connect.
+
+**Not built**
+- Program check-offs are session-local, not persisted per day
+- No Stripe webhook handling, so async payment and subscription lifecycle events aren't confirmed
+- No trainer availability calendar behind booking
+- No email notifications
+- No profile image uploads
+
+Built to exercise the current .NET stack end to end — marketplace domain modelling, role-scoped
+portals, and split-payment mechanics — rather than to ship commercially.
+
 ## Stack
 - **ASP.NET Core / Blazor Web App** (.NET 10), interactive server rendering
 - **SQL Server** (LocalDB by default) via **EF Core 10** (code-first + migrations)
