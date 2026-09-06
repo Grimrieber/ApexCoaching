@@ -26,6 +26,8 @@ else
     {
         <div class="alert-ok">Payout account connected (demo). You're ready to receive payments.</div>
     }
+    @if (!string.IsNullOrEmpty(payoutError)) { <div class="auth-error">@payoutError</div> }
+
     @if (savedNote)
     {
         <div class="alert-ok">Profile saved.</div>
@@ -77,6 +79,7 @@ else
     private bool loading = true;
     private bool busy;
     private bool savedNote;
+    private string? payoutError;
     private Trainer? trainer;
 
     protected override async Task OnInitializedAsync()
@@ -95,10 +98,19 @@ else
     {
         if (trainer is null) return;
         busy = true;
+        payoutError = null;
         var baseUrl = Nav.BaseUri.TrimEnd('/');
-        var url = await Payments.CreateOnboardingLinkAsync(
+        var result = await Payments.CreateOnboardingLinkAsync(
             trainer, $"{baseUrl}/trainer/profile", $"{baseUrl}/trainer/profile");
         busy = false;
-        Nav.NavigateTo(url, forceLoad: true);
+
+        if (result.Success)
+        {
+            Nav.NavigateTo(result.RedirectUrl, forceLoad: true);
+            return;
+        }
+
+        // Stay on the page so the trainer can retry rather than landing on an error screen.
+        payoutError = result.Error ?? "Could not start payout setup. Please try again.";
     }
 }

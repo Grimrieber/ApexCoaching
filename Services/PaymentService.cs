@@ -14,8 +14,16 @@ public record CheckoutResult(bool Success, string RedirectUrl, string? Error = n
 /// When Stripe keys are not configured the service runs in <b>demo mode</b>: it records the payment
 /// and activates the engagement/booking locally so the whole flow is demonstrable without real money.
 /// </summary>
+/// <remarks>
+/// Every public method returns <see cref="CheckoutResult"/> rather than throwing. Callers are UI
+/// components, and an unhandled exception mid-checkout would drop the user on an error page with no
+/// indication of whether they had been charged. Provider detail is logged, never surfaced.
+/// </remarks>
 public class PaymentService
 {
+    private const string ProviderUnavailable =
+        "We couldn't reach our payment provider. No charge was made - please try again in a moment.";
+
     private readonly ApplicationDbContext _db;
     private readonly StripeSettings _settings;
     private readonly ILogger<PaymentService> _log;
@@ -35,45 +43,86 @@ public class PaymentService
     public static decimal PlatformFee(decimal amount, decimal commissionRate)
         => Math.Round(amount * commissionRate, 2, MidpointRounding.AwayFromZero);
 
+    // ---- Failure handling ----------------------------------------------------------------
+
+    /// <summary>
+    /// Logs the real cause and maps it to a message that is safe to show a user. Stripe messages are
+    /// only passed through for card errors, which are the ones a user can act on; anything else could
+    /// disclose account or configuration detail.
+    /// </summary>
+    private CheckoutResult Fail(Exception ex, string operation, string fallbackUrl)
+    {
+        _log.LogError(ex, "{Operation} failed", operation);
+
+        var message = ex switch
+        {
+            StripeException se when se.StripeError?.Type == "card_error"
+                => se.StripeError.Message ?? ProviderUnavailable,
+            StripeException => ProviderUnavailable,
+            TaskCanceledException or TimeoutException
+                => "The payment provider took too long to respond. No charge was made - please try again.",
+            HttpRequestException => ProviderUnavailable,
+            DbUpdateException
+                => "We couldn't save your details. Please try again, and contact support if it keeps happening.",
+            _ => ProviderUnavailable
+        };
+
+        return new CheckoutResult(false, fallbackUrl, message);
+    }
+
+    /// <summary>True when the trainer can actually receive a transfer.</summary>
+    private static bool CanReceivePayouts(Trainer trainer)
+        => !string.IsNullOrEmpty(trainer.StripeAccountId) && trainer.StripeOnboarded;
+
     // ---- Trainer onboarding (Stripe Connect Express) -------------------------------------
 
     /// <summary>
     /// Returns a URL to send the trainer to in order to connect their payout account.
     /// Demo mode marks the trainer onboarded immediately and returns a local return URL.
     /// </summary>
-    public async Task<string> CreateOnboardingLinkAsync(Trainer trainer, string returnUrl, string refreshUrl)
+    public async Task<CheckoutResult> CreateOnboardingLinkAsync(Trainer trainer, string returnUrl, string refreshUrl)
     {
-        if (!LiveMode)
+        try
         {
-            trainer.StripeAccountId ??= $"acct_demo_{trainer.Id}";
-            trainer.StripeOnboarded = true;
-            await _db.SaveChangesAsync();
-            return returnUrl + "?demo=1";
-        }
-
-        if (string.IsNullOrEmpty(trainer.StripeAccountId))
-        {
-            var account = await new AccountService().CreateAsync(new AccountCreateOptions
+            if (!LiveMode)
             {
-                Type = "express",
-                Email = trainer.User?.Email,
-                Capabilities = new AccountCapabilitiesOptions
-                {
-                    Transfers = new AccountCapabilitiesTransfersOptions { Requested = true }
-                }
-            });
-            trainer.StripeAccountId = account.Id;
-            await _db.SaveChangesAsync();
-        }
+                trainer.StripeAccountId ??= $"acct_demo_{trainer.Id}";
+                trainer.StripeOnboarded = true;
+                await _db.SaveChangesAsync();
+                return new CheckoutResult(true, returnUrl + "?demo=1");
+            }
 
-        var link = await new AccountLinkService().CreateAsync(new AccountLinkCreateOptions
+            if (string.IsNullOrEmpty(trainer.StripeAccountId))
+            {
+                var account = await new AccountService().CreateAsync(new AccountCreateOptions
+                {
+                    Type = "express",
+                    Email = trainer.User?.Email,
+                    Capabilities = new AccountCapabilitiesOptions
+                    {
+                        Transfers = new AccountCapabilitiesTransfersOptions { Requested = true }
+                    }
+                });
+                trainer.StripeAccountId = account.Id;
+
+                // Persist before requesting the link. If the save fails we must not hand back a link
+                // for an account id we never recorded, or the next attempt creates a second account.
+                await _db.SaveChangesAsync();
+            }
+
+            var link = await new AccountLinkService().CreateAsync(new AccountLinkCreateOptions
+            {
+                Account = trainer.StripeAccountId,
+                ReturnUrl = returnUrl,
+                RefreshUrl = refreshUrl,
+                Type = "account_onboarding"
+            });
+            return new CheckoutResult(true, link.Url);
+        }
+        catch (Exception ex)
         {
-            Account = trainer.StripeAccountId,
-            ReturnUrl = returnUrl,
-            RefreshUrl = refreshUrl,
-            Type = "account_onboarding"
-        });
-        return link.Url;
+            return Fail(ex, "Stripe Connect onboarding", returnUrl);
+        }
     }
 
     // ---- Subscriptions (monthly coaching packages) ---------------------------------------
@@ -83,26 +132,35 @@ public class PaymentService
     {
         var fee = PlatformFee(package.PriceMonthly, trainer.CommissionRate);
 
-        if (!LiveMode)
-        {
-            var engagement = new Engagement
-            {
-                ClientProfileId = client.Id,
-                TrainerId = trainer.Id,
-                ServicePackageId = package.Id,
-                MonthlyPrice = package.PriceMonthly,
-                Status = EngagementStatus.Active,
-                StripeSubscriptionId = $"sub_demo_{Guid.NewGuid():N}"
-            };
-            _db.Engagements.Add(engagement);
-            client.TrainerId = trainer.Id;
-            RecordPayment(client.Id, trainer.Id, PaymentType.Subscription, package.PriceMonthly, fee, "demo");
-            await _db.SaveChangesAsync();
-            return new CheckoutResult(true, $"{baseUrl}/client/billing?welcome=1");
-        }
-
         try
         {
+            if (!LiveMode)
+            {
+                var engagement = new Engagement
+                {
+                    ClientProfileId = client.Id,
+                    TrainerId = trainer.Id,
+                    ServicePackageId = package.Id,
+                    MonthlyPrice = package.PriceMonthly,
+                    Status = EngagementStatus.Active,
+                    StripeSubscriptionId = $"sub_demo_{Guid.NewGuid():N}"
+                };
+                _db.Engagements.Add(engagement);
+                client.TrainerId = trainer.Id;
+                RecordPayment(client.Id, trainer.Id, PaymentType.Subscription, package.PriceMonthly, fee, "demo");
+                await _db.SaveChangesAsync();
+                return new CheckoutResult(true, $"{baseUrl}/client/billing?welcome=1");
+            }
+
+            // Stripe rejects a transfer to an account that has not completed onboarding, and the
+            // error it returns is opaque. Check first so the client gets a message that explains itself.
+            if (!CanReceivePayouts(trainer))
+            {
+                _log.LogWarning("Subscription blocked: trainer {TrainerId} has not completed payout onboarding", trainer.Id);
+                return new CheckoutResult(false, baseUrl,
+                    "This trainer hasn't finished setting up payments yet. Please try again later.");
+            }
+
             var session = await new SessionService().CreateAsync(new SessionCreateOptions
             {
                 Mode = "subscription",
@@ -133,10 +191,9 @@ public class PaymentService
             });
             return new CheckoutResult(true, session.Url);
         }
-        catch (StripeException ex)
+        catch (Exception ex)
         {
-            _log.LogError(ex, "Stripe subscription checkout failed");
-            return new CheckoutResult(false, baseUrl, ex.Message);
+            return Fail(ex, "Stripe subscription checkout", baseUrl);
         }
     }
 
@@ -146,17 +203,24 @@ public class PaymentService
     {
         var fee = PlatformFee(booking.Price, trainer.CommissionRate);
 
-        if (!LiveMode)
-        {
-            booking.Status = BookingStatus.Confirmed;
-            booking.StripePaymentIntentId = $"pi_demo_{Guid.NewGuid():N}";
-            RecordPayment(booking.ClientProfileId, trainer.Id, PaymentType.Booking, booking.Price, fee, "demo");
-            await _db.SaveChangesAsync();
-            return new CheckoutResult(true, $"{baseUrl}/client/bookings?booked=1");
-        }
-
         try
         {
+            if (!LiveMode)
+            {
+                booking.Status = BookingStatus.Confirmed;
+                booking.StripePaymentIntentId = $"pi_demo_{Guid.NewGuid():N}";
+                RecordPayment(booking.ClientProfileId, trainer.Id, PaymentType.Booking, booking.Price, fee, "demo");
+                await _db.SaveChangesAsync();
+                return new CheckoutResult(true, $"{baseUrl}/client/bookings?booked=1");
+            }
+
+            if (!CanReceivePayouts(trainer))
+            {
+                _log.LogWarning("Booking blocked: trainer {TrainerId} has not completed payout onboarding", trainer.Id);
+                return new CheckoutResult(false, $"{baseUrl}/client/book",
+                    "This trainer hasn't finished setting up payments yet. Please try again later.");
+            }
+
             var session = await new SessionService().CreateAsync(new SessionCreateOptions
             {
                 Mode = "payment",
@@ -189,10 +253,9 @@ public class PaymentService
             });
             return new CheckoutResult(true, session.Url);
         }
-        catch (StripeException ex)
+        catch (Exception ex)
         {
-            _log.LogError(ex, "Stripe booking checkout failed");
-            return new CheckoutResult(false, baseUrl, ex.Message);
+            return Fail(ex, "Stripe booking checkout", $"{baseUrl}/client/book");
         }
     }
 
