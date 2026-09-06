@@ -3,6 +3,7 @@
 @attribute [Authorize(Roles = "Trainer")]
 @rendermode InteractiveServer
 @inject ApplicationDbContext Db
+@inject ILogger<TrainerProfileEdit> Log
 @inject PortalContext Portal
 @inject PaymentService Payments
 @inject NavigationManager Nav
@@ -90,7 +91,9 @@ else
 
     private async Task Save()
     {
-        await Db.SaveChangesAsync();
+        payoutError = await Db.TrySaveAsync(Log, "Save trainer profile");
+        if (payoutError is not null) return;
+
         savedNote = true;
     }
 

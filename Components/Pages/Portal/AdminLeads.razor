@@ -3,6 +3,7 @@
 @attribute [Authorize(Roles = "Admin")]
 @rendermode InteractiveServer
 @inject ApplicationDbContext Db
+@inject ILogger<AdminLeads> Log
 
 <PageTitle>Leads — Admin</PageTitle>
 
@@ -47,7 +48,10 @@ else
     </div>
 }
 
+@if (!string.IsNullOrEmpty(saveError)) { <div class="auth-error">@saveError</div> }
+
 @code {
+    private string? saveError;
     private bool loading = true;
     private List<Lead> leads = new();
 
@@ -65,7 +69,7 @@ else
         if (Enum.TryParse<LeadStatus>(value, out var status))
         {
             l.Status = status;
-            await Db.SaveChangesAsync();
+            saveError = await Db.TrySaveAsync(Log, $"Update lead {l.Id} status");
         }
     }
 }

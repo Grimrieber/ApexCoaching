@@ -1,6 +1,7 @@
 @page "/contact"
 @rendermode InteractiveServer
 @inject ApplicationDbContext Db
+@inject ILogger<Contact> Log
 
 <PageTitle>Contact — Apex Coaching</PageTitle>
 
@@ -38,7 +39,10 @@
     }
 </section>
 
+@if (!string.IsNullOrEmpty(saveError)) { <div class="auth-error">@saveError</div> }
+
 @code {
+    private string? saveError;
     private LeadForm Input = new();
     private bool submitted;
     private bool busy;
@@ -47,6 +51,7 @@
     private async Task Submit()
     {
         busy = true;
+        saveError = null;
         Db.Leads.Add(new Lead
         {
             Name = Input.Name,
@@ -54,10 +59,13 @@
             Goal = Input.Goal,
             Status = LeadStatus.New
         });
-        await Db.SaveChangesAsync();
+
+        saveError = await Db.TrySaveAsync(Log, "Submit contact lead");
+        busy = false;
+        if (saveError is not null) return;   // keep their message on screen so they can resend
+
         savedName = Input.Name;
         submitted = true;
-        busy = false;
     }
 
     private class LeadForm

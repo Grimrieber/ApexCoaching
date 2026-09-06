@@ -3,6 +3,7 @@
 @attribute [Authorize(Roles = "Trainer")]
 @rendermode InteractiveServer
 @inject ApplicationDbContext Db
+@inject ILogger<TrainerPackages> Log
 @inject PortalContext Portal
 
 <PageTitle>Packages — Apex Coaching</PageTitle>
@@ -54,7 +55,10 @@ else
     }
 }
 
+@if (!string.IsNullOrEmpty(saveError)) { <div class="auth-error">@saveError</div> }
+
 @code {
+    private string? saveError;
     private bool loading = true;
     private bool savedNote;
     private Trainer? trainer;
@@ -88,13 +92,15 @@ else
             Features = "Custom training program\nMonthly check-in",
             IsActive = true
         });
-        await Db.SaveChangesAsync();
+        saveError = await Db.TrySaveAsync(Log, "Add service package");
         await ReloadAsync();
     }
 
     private async Task Save(ServicePackage p)
     {
-        await Db.SaveChangesAsync();
+        saveError = await Db.TrySaveAsync(Log, $"Save service package {p.Id}");
+        if (saveError is not null) return;
+
         savedNote = true;
         await Task.Delay(1200);
         savedNote = false;
@@ -103,7 +109,7 @@ else
     private async Task Delete(ServicePackage p)
     {
         Db.ServicePackages.Remove(p);
-        await Db.SaveChangesAsync();
+        saveError = await Db.TrySaveAsync(Log, $"Delete service package {p.Id}");
         await ReloadAsync();
     }
 }

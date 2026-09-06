@@ -5,6 +5,7 @@
 @inject UserManager<ApplicationUser> UserManager
 @inject SignInManager<ApplicationUser> SignInManager
 @inject ApplicationDbContext Db
+@inject ILogger<Register> Log
 @inject IdentityRedirectManager RedirectManager
 
 <PageTitle>Create account — Apex Coaching</PageTitle>
@@ -95,7 +96,19 @@
         {
             Db.ClientProfiles.Add(new ClientProfile { UserId = user.Id });
         }
-        await Db.SaveChangesAsync();
+        var saveError = await Db.TrySaveAsync(Log, $"Create {role} profile on registration");
+        if (saveError is not null)
+        {
+            // The Identity user already exists at this point. Leaving it would strand an account
+            // that can sign in but has no profile, and the email would be taken on a retry.
+            // Roll it back so registration is all-or-nothing.
+            var cleanup = await UserManager.DeleteAsync(user);
+            if (!cleanup.Succeeded)
+                Log.LogError("Orphaned identity user {UserId} - profile save failed and rollback did not succeed", user.Id);
+
+            errors.Add(saveError);
+            return;
+        }
 
         await SignInManager.SignInAsync(user, isPersistent: false);
         RedirectManager.RedirectTo("/dashboard");

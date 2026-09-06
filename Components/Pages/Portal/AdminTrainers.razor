@@ -3,6 +3,7 @@
 @attribute [Authorize(Roles = "Admin")]
 @rendermode InteractiveServer
 @inject ApplicationDbContext Db
+@inject ILogger<AdminTrainers> Log
 
 <PageTitle>Trainers — Admin</PageTitle>
 
@@ -44,7 +45,10 @@ else
     </div>
 }
 
+@if (!string.IsNullOrEmpty(saveError)) { <div class="auth-error">@saveError</div> }
+
 @code {
+    private string? saveError;
     private bool loading = true;
     private List<Trainer> trainers = new();
     private Dictionary<int, int> clientCounts = new();
@@ -68,6 +72,7 @@ else
     private async Task Toggle(Trainer t)
     {
         t.IsApproved = !t.IsApproved;
-        await Db.SaveChangesAsync();
+        saveError = await Db.TrySaveAsync(Log, $"Toggle approval for trainer {t.Id}");
+        if (saveError is not null) t.IsApproved = !t.IsApproved;   // revert so the UI matches the database
     }
 }
